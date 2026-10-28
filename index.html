@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador Interactivo de Eclipses 3D - Mini Motor WebGL2</title>
+    <style>
+        :root {
+            --bg-panel: rgba(12, 16, 28, 0.84);
+            --border-panel: rgba(100, 150, 255, 0.24);
+            --accent: #38bdf8;
+            --accent-solar: #f59e0b;
+            --accent-lunar: #ef4444;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #03050a;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            color: var(--text-main);
+        }
+
+        #glCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: grab;
+        }
+
+        #glCanvas.arrastrando {
+            cursor: grabbing;
+        }
+
+        /* HUD Izquierdo: Estado + Panel Dinámico de Fases Lunares */
+        .top-hud {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            pointer-events: none;
+            z-index: 10;
+            width: 310px;
+        }
+
+        .brand-card, .phase-card {
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-panel);
+            border-radius: 12px;
+            padding: 12px 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+        }
+
+        .brand-title {
+            font-size: 1.0rem;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            color: #fff;
+            margin: 0 0 4px 0;
+        }
+
+        .brand-sub {
+            font-size: 0.76rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        .eclipse-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            font-size: 0.79rem;
+            font-weight: 600;
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            color: var(--accent);
+            transition: all 0.25s ease;
+        }
+
+        .eclipse-badge.solar {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: var(--accent-solar);
+            color: #fbbf24;
+        }
+
+        .eclipse-badge.lunar {
+            background: rgba(239, 68, 68, 0.22);
+            border-color: var(--accent-lunar);
+            color: #f87171;
+        }
+
+        /* Tarjeta de Fase Lunar en Tiempo Real */
+        .phase-header {
+            font-size: 0.73rem;
+            text-transform: uppercase;
+            letter-spacing: 0.9px;
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 4px;
+        }
+
+        .phase-body {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        #moonPhaseCanvas {
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: radial-gradient(circle, #0b1120 60%, #030712 100%);
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            flex-shrink: 0;
+        }
+
+        .phase-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.8rem;
+        }
+
+        .phase-name {
+            font-size: 0.94rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .phase-metric {
+            color: var(--text-muted);
+            font-size: 0.76rem;
+        }
+
+        .phase-metric strong {
+            color: #e2e8f0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Panel Derecho de Controles */
+        .control-panel {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            width: 335px;
+            max-height: calc(100vh - 32px);
+            overflow-y: auto;
+            background: var(--bg-panel);
+            backdrop-filter: blur(14px);
+            border: 1px solid var(--border-panel);
+            border-radius: 14px;
+            padding: 16px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+            z-index: 10;
+        }
+
+        .section-title {
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--accent);
+            margin: 13px 0 8px 0;
+            font-weight: 700;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 4px;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .btn-grid-3 {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+        }
+
+        button {
+            background: rgba(30, 41, 59, 0.85);
+            color: var(--text-main);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 0.79rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+
+        button:hover {
+            background: rgba(56, 189, 248, 0.2);
+            border-color: var(--accent);
+        }
+
+        button.active {
+            background: rgba(56, 189, 248, 0.28);
+            border-color: var(--accent);
+            color: #fff;
+            font-weight: 600;
+        }
+
+        button.btn-full {
+            grid-column: 1 / -1;
+        }
+
+        .control-row {
+            margin-bottom: 10px;
+        }
+
+        .control-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.79rem;
+            margin-bottom: 4px;
+            color: #cbd5e1;
+        }
+
+        .control-value {
+            color: var(--accent);
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+
+        .checkbox-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 6px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: #e2e8f0;
+            cursor: pointer;
+        }
+
+        .checkbox-item input {
+            accent-color: var(--accent);
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+        }
+
+        .legend-bar {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            background: var(--bg-panel);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-panel);
+            border-radius: 10px;
+            padding: 8px 14px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 15px;
+            z-index: 10;
+        }
+
+        .dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="glCanvas" width="1280" height="720"></canvas>
+
+    <!-- HUD Izquierdo: Estado + Panel Dinámico de Fases Lunares -->
+    <div class="top-hud">
+        <div class="brand-card">
+            <h1 class="brand-title">SIMULADOR INTERACTIVO DE ECLIPSES 3D</h1>
+            <p class="brand-sub">· Mini Motor WebGL2</p>
+            <div id="eclipseStatus" class="eclipse-badge">
+                Órbita Normal (Sin Eclipse)
+            </div>
+        </div>
+
+        <!-- Nuevo Panel Dinámico de Fases Lunares (Vista desde la Tierra) -->
+        <div class="phase-card">
+            <div class="phase-header">Fase Lunar (Perspectiva Terrestre)</div>
+            <div class="phase-body">
+                <canvas id="moonPhaseCanvas" width="120" height="120"></canvas>
+                <div class="phase-info">
+                    <div id="phaseName" class="phase-name">Cuarto Creciente</div>
+                    <div class="phase-metric">Iluminación: <strong id="phaseIllum">50%</strong></div>
+                    <div class="phase-metric">Elongación: <strong id="phaseElong">90°</strong></div>
+                    <div class="phase-metric">Desvío nodal: <strong id="phaseTilt">0.0°</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Panel Derecho: Controles Interactivos -->
+    <aside class="control-panel">
+        <div class="section-title">Escenarios de Eclipse (Sizigia)</div>
+        <div class="btn-grid">
+            <button id="btnSolarEclipse">☀️ Eclipse Solar</button>
+            <button id="btnLunarEclipse">🌕 Eclipse Lunar</button>
+            <button id="btnNoEclipse" class="btn-full">📐 Paso sin Eclipse (Inclinación 5.1°)</button>
+        </div>
+
+        <div class="section-title">Cámara y Punto de Observación</div>
+        <div class="btn-grid">
+            <button id="camSun" class="active">🌌 Sistema</button>
+            <button id="camEarth">🌍 Tierra</button>
+            <button id="camMoon">🌕 Luna</button>
+            <button id="camPovSun">🔭 POV Tierra → Sol</button>
+        </div>
+
+        <div class="section-title">Escala y Control Temporal</div>
+        <div class="btn-grid" style="margin-bottom: 10px;">
+            <button id="btnPlayPause">⏸️ Pausar</button>
+            <button id="btnResetCam">🔄 Reset Vista</button>
+        </div>
+
+        <!-- Nuevo Slider de Escalado de Distancia -->
+        <div class="control-row">
+            <div class="control-label">
+                <span>Escalado de Distancia Orbital</span>
+                <span id="valDistScale" class="control-value">1.00x</span>
+            </div>
+            <input type="range" id="sliderDistScale" min="0.55" max="2.20" step="0.05" value="1.00">
+        </div>
+
+        <div class="control-row">
+            <div class="control-label">
+                <span>Velocidad de Simulación</span>
+                <span id="valSpeed" class="control-value">1.0x</span>
+            </div>
+            <input type="range" id="sliderSpeed" min="0" max="3" step="0.05" value="1.0">
+        </div>
+
+        <div class="control-row">
+            <div class="control-label">
+                <span>Fase Lunar (Ángulo Orbital)</span>
+                <span id="valMoonAngle" class="control-value">45°</span>
+            </div>
+            <input type="range" id="sliderMoonAngle" min="0" max="360" step="0.5" value="45">
+        </div>
+
+        <div class="section-title">Inclinación del Plano Lunar</div>
+        <div class="control-row">
+            <div class="control-label">
+                <span>Ángulo respecto a la Eclíptica</span>
+                <span id="valInclination" class="control-value">5.1°</span>
+            </div>
+            <input type="range" id="sliderInclination" min="0" max="20" step="0.1" value="5.1">
+        </div>
+        <div class="btn-grid-3">
+            <button id="inc0">0° (Mensual)</button>
+            <button id="inc5">5.1° (Real)</button>
+            <button id="inc15">15° (Didáctico)</button>
+        </div>
+
+        <div class="section-title">Guías Volumétricas y Capas</div>
+        <div class="checkbox-list">
+            <label class="checkbox-item">
+                <input type="checkbox" id="chkSunHalo" checked>
+                Halo de Iluminación Solar (Glow)
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chkShadowCones" checked>
+                Conos de Sombra (Umbra y Penumbra)
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chkLightGuide" checked>
+                Cono Guía de Radiación Solar
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chkOrbits" checked>
+                Anillos de Órbita (Eclíptica y Lunar)
+            </label>
+            <label class="checkbox-item">
+                <input type="checkbox" id="chkStars" checked>
+                Fondo Estelar 3D
+            </label>
+        </div>
+    </aside>
+
+    <!-- Leyenda Inferior -->
+    <div class="legend-bar">
+        <span><i class="dot" style="background:#ef4444;"></i>Cono Umbra</span>
+        <span><i class="dot" style="background:#64748b;"></i>Cono Penumbra</span>
+        <span><i class="dot" style="background:#fbbf24;"></i>Halo / Guía Solar</span>
+        <span id="cameraHint">🖱️ Arrastrar: Orbitar | Rueda: Zoom</span>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
